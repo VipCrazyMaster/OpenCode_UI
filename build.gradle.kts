@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.3"
+version = "1.1.4"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,11 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.4</h2>
+            <ul>
+                <li>Fix: Diffs larger than 1 MB per file (or 3 MB in total) are no longer opened automatically. Opening very large diffs freezes the editor for tens of seconds while IDE folding and highlighting run; a notification now names the file so it can be reviewed manually.</li>
+                <li>Fix: Synthetic diff generation no longer reads files larger than 8 MB into memory.</li>
+            </ul>
             <h2>1.1.3</h2>
             <ul>
                 <li>Fix: Out of memory / IDE freeze in long sessions. The SSE response body is now always closed, oversized event lines are dropped instead of buffered, reconnects back off exponentially (3s to 60s), and stale callbacks can no longer reschedule a reconnect.</li>

@@ -50,6 +50,7 @@ open class SessionManager(private val project: Project) : Disposable {
         private const val MAX_CAPTURED_TURN_BYTES = 64L * 1024 * 1024
         private const val MAX_KNOWN_STATES = 5000
         private const val MAX_KNOWN_STATE_BYTES = 64L * 1024 * 1024
+        private const val MAX_SYNTHETIC_DIFF_BYTES = 8L * 1024 * 1024
     }
 
     // ==================== Turn State ====================
@@ -231,6 +232,14 @@ open class SessionManager(private val project: Project) : Disposable {
             capturedBeforeBytes += byteSize
             capturedBeforeContent.putIfAbsent(relativePath, content)
         }
+    }
+
+    private fun readFileCapped(file: File): String? {
+        if (file.length() > MAX_SYNTHETIC_DIFF_BYTES) {
+            logger.warn("[SyntheticDiff] Not reading ${file.path}: ${file.length()} bytes exceeds ${MAX_SYNTHETIC_DIFF_BYTES / (1024 * 1024)}MB")
+            return null
+        }
+        return file.readText()
     }
 
     private fun putKnownState(relativePath: String, content: String) {
@@ -640,7 +649,10 @@ open class SessionManager(private val project: Project) : Disposable {
 
         val afterContent = if (fileExists) {
             try {
-                file.readText()
+                readFileCapped(file) ?: run {
+                    logger.warn("[SyntheticDiff] $relativePath -> SKIP: after content exceeds ${MAX_SYNTHETIC_DIFF_BYTES / (1024 * 1024)}MB")
+                    return null
+                }
             } catch (e: Exception) {
                 logger.warn("[SyntheticDiff] $relativePath -> Failed to read file: ${e.message}")
                 ""
@@ -813,7 +825,7 @@ open class SessionManager(private val project: Project) : Disposable {
                 val file = File(absPath)
                 if (file.exists()) {
                     logger.info("[Turn #${snapshot.turnNumber}] Server before is empty but intent is Delete. Using disk content as before.")
-                    return file.readText()
+                    return readFileCapped(file) ?: serverBefore
                 }
             } catch (e: Exception) {
                 logger.warn("[Turn #${snapshot.turnNumber}] Failed to read disk fallback for $relativePath", e)
