@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.0"
+version = "1.1.3"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,12 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.3</h2>
+            <ul>
+                <li>Fix: Out of memory / IDE freeze in long sessions. The SSE response body is now always closed, oversized event lines are dropped instead of buffered, reconnects back off exponentially (3s to 60s), and stale callbacks can no longer reschedule a reconnect.</li>
+                <li>Fix: Before-state capture now skips files above 1 MB, binary files and VCS-ignored paths, and caps each turn at 64 MB. Known-state cache entries are bounded (5000 entries) and removed when a file is deleted.</li>
+                <li>Fix: Per-turn snapshot and diff payload state is released when the turn finishes, instead of being retained until the next turn of the same session starts.</li>
+            </ul>
             <h2>1.1.0</h2>
             <ul>
                 <li>New: Custom base path support — added a "Custom base path" dropdown in the connection dialog, allowing users to specify a working directory for OpenCode terminal sessions. Automatically populated with detected project modules.</li>

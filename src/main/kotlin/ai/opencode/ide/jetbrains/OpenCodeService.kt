@@ -58,6 +58,8 @@ class OpenCodeService(private val project: Project) : Disposable {
         private const val RETRY_INTERVAL_MS = 5000L
         private const val BARRIER_TIMEOUT_MS = 2000L
         internal var DEBOUNCE_MS = 1500L
+        private const val MAX_PENDING_DIFF_ENTRIES = 500
+        private const val MAX_PENDING_DIFF_CHARS = 32L * 1024 * 1024
     }
 
     private var hostname: String = "127.0.0.1"
@@ -239,11 +241,21 @@ class OpenCodeService(private val project: Project) : Disposable {
             }
             is CommandExecutedEvent -> recordTurnMessageId(event.properties.sessionID, event.properties.messageID)
             is SessionDiffEvent -> if (event.properties.diff.isNotEmpty()) {
-                turnPendingPayloads[event.properties.sessionID] = event.properties.diff
+                storePendingPayload(event.properties.sessionID, event.properties.diff)
                 attemptBarrierTrigger(event.properties.sessionID)
             }
             else -> {}
         }
+    }
+
+    private fun storePendingPayload(sessionId: String, diffs: List<FileDiff>) {
+        val chars = diffs.sumOf { it.before.length.toLong() + it.after.length.toLong() }
+        if (diffs.size > MAX_PENDING_DIFF_ENTRIES || chars > MAX_PENDING_DIFF_CHARS) {
+            logger.warn("[OpenCode] Dropping session.diff payload for $sessionId: ${diffs.size} files / ${chars / (1024 * 1024)}MB exceeds ${MAX_PENDING_DIFF_ENTRIES} files / ${MAX_PENDING_DIFF_CHARS / (1024 * 1024)}MB")
+            turnPendingPayloads.remove(sessionId)
+            return
+        }
+        turnPendingPayloads[sessionId] = diffs
     }
 
     private fun clearTurnState(sessionId: String) {
@@ -401,6 +413,15 @@ class OpenCodeService(private val project: Project) : Disposable {
                 logger.error("[OpenCode] Turn #${snapshot.turnNumber} Diff fetch error", e)
             } finally {
                 turnPendingPayloads.remove(sessionId)
+                // clearTurnState only runs on the next onTurnStart of the same session, so a finished or
+                // abandoned session would otherwise keep its TurnSnapshot (full-file texts) and barrier
+                // task pinned for the lifetime of the process.
+                turnSnapshots.remove(sessionId, snapshot)
+                if (messageId != null) turnMessageIds.remove(sessionId, messageId)
+                turnIdleWaiting.remove(sessionId)
+                turnLastTriggerTimes.remove(sessionId)
+                turnBarrierTasks.remove(sessionId)?.cancel(false)
+                logger.info("[OpenCode] Turn state released for $sessionId (snapshots=${turnSnapshots.size}, payloads=${turnPendingPayloads.size})")
             }
         }
     }
