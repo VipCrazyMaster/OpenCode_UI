@@ -100,6 +100,7 @@ class OpenCodeService(private val project: Project) : Disposable {
     private val completionEpoch = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val currentTurnMessageKeys = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val lastAnnouncementAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val lastSettledMessageIds = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     val sessionManager: SessionManager get() = _sessionManager ?: project.service()
     private val diffViewerService: DiffViewerService get() = _diffViewerService ?: project.service()
@@ -493,9 +494,9 @@ class OpenCodeService(private val project: Project) : Disposable {
                 return@schedule
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
-            if (!isSessionTreeIdle(sessionId)) {
+            if (!isCompletionSettled(sessionId, snapshot)) {
                 if (attempt == 0 || attempt % 15 == 0) {
-                    logger.info("[OpenCode] Completion deferred: session tree of $sessionId still has background work (check ${attempt + 1})")
+                    logger.info("[OpenCode] Completion deferred (check ${attempt + 1}) for $sessionId")
                 }
                 if (attempt < MAX_COMPLETION_CHECKS) scheduleCompletionAnnouncement(sessionId, snapshot, attempt + 1)
                 return@schedule
@@ -503,6 +504,29 @@ class OpenCodeService(private val project: Project) : Disposable {
             announcedCompletionKeys[sessionId] = key
             announceCompletion(sessionId, snapshot)
         }, delayMs, TimeUnit.MILLISECONDS)
+    }
+
+    private fun isCompletionSettled(sessionId: String, snapshot: TurnSnapshot?): Boolean {
+        val client = apiClient ?: return true
+        val directory = project.basePath ?: return true
+        val tail = try {
+            client.getSessionTailState(sessionId, directory)
+        } catch (e: Exception) {
+            logger.warn("[OpenCode] Completion check failed to read messages: ${e.message}")
+            return false
+        }
+        if (tail == null) return snapshot != null && isSessionTreeIdle(sessionId)
+        if (!tail.completed || tail.runningTools > 0) {
+            lastSettledMessageIds.remove(sessionId)
+            logger.info("[OpenCode] Still running: ${tail.messageId} completed=${tail.completed} runningTools=${tail.runningTools}")
+            return false
+        }
+        val previous = lastSettledMessageIds.put(sessionId, tail.messageId)
+        if (previous != tail.messageId) {
+            logger.info("[OpenCode] Waiting for ${tail.messageId} to stay quiet")
+            return false
+        }
+        return isSessionTreeIdle(sessionId)
     }
 
     private fun isSessionTreeIdle(sessionId: String): Boolean {
@@ -588,7 +612,7 @@ class OpenCodeService(private val project: Project) : Disposable {
         connectionManagerTask?.cancel(true); sseListener?.disconnect(); isConnected.set(false); isConnecting.set(false)
         turnMessageIds.clear(); turnPendingPayloads.clear(); turnSnapshots.clear(); turnIdleWaiting.clear(); turnBarrierTasks.values.forEach { it.cancel(false) }; turnBarrierTasks.clear()
         pendingCompletionTasks.values.forEach { it.cancel(false) }; pendingCompletionTasks.clear()
-        announcedCompletionKeys.clear(); completionEpoch.clear(); currentTurnMessageKeys.clear(); lastAnnouncementAt.clear()
+        announcedCompletionKeys.clear(); completionEpoch.clear(); currentTurnMessageKeys.clear(); lastAnnouncementAt.clear(); lastSettledMessageIds.clear()
         terminateProcess()
         terminalVirtualFile?.let { OpenCodeTerminalFileEditorProvider.disposeWidget(it, null) }
         terminalVirtualFile = null; terminalEditor = null; webVirtualFile = null; port = null; hostname = "127.0.0.1"; apiClient = null

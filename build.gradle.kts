@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.7"
+version = "1.1.8"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,10 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.8</h2>
+            <ul>
+                <li>Fix: completion is now verified against the newest assistant message. A missing completion timestamp, or a pending/running tool part, means the turn is still running; the message must also stay unchanged across one re-check. This removes the remaining "completed" announcements that fired while work was still in progress.</li>
+            </ul>
             <h2>1.1.7</h2>
             <ul>
                 <li>Fix: the "diff not opened automatically" warning is now only shown when there is something to review. A batch that only deletes oversized files stays silent (logged), and the notification suggests git instead of a file that no longer exists.</li>
