@@ -529,10 +529,16 @@ class OpenCodeService(private val project: Project) : Disposable {
         snapshot: TurnSnapshot?,
         tail: ai.opencode.ide.jetbrains.api.OpenCodeApiClient.SessionTailState?
     ): Boolean {
+        // The IDE's own blue progress bar keeps animating while indexes rebuild after the files
+        // the agent wrote; announcing then looks like "still running" to the user.
+        if (com.intellij.openapi.project.DumbService.getInstance(project).isDumb) {
+            logger.info("[OpenCode] Completion deferred: IDE is indexing")
+            return false
+        }
         if (tail == null) return snapshot != null && isSessionTreeIdle(sessionId)
-        if (!tail.completed || tail.runningTools > 0) {
+        if (!tail.completed || tail.runningTools > 0 || tail.finishReason == "tool-calls") {
             lastSettledMessageIds.remove(sessionId)
-            logger.info("[OpenCode] Still running: ${tail.messageId} completed=${tail.completed} runningTools=${tail.runningTools}")
+            logger.info("[OpenCode] Still running: ${tail.messageId} completed=${tail.completed} runningTools=${tail.runningTools} finishReason=${tail.finishReason}")
             return false
         }
         val previous = lastSettledMessageIds.put(sessionId, tail.messageId)

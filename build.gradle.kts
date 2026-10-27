@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.9"
+version = "1.1.10"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,11 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.10</h2>
+            <ul>
+                <li>Fix: a turn whose last step finished with reason "tool-calls" is treated as still running, which is how OpenCode itself marks an unfinished turn.</li>
+                <li>Fix: completion is also deferred while the IDE is indexing (DumbService), so the announcement no longer overlaps PyCharm's own progress bar after the agent rewrites files.</li>
+            </ul>
             <h2>1.1.9</h2>
             <ul>
                 <li>Fix: manually interrupted turns are no longer announced as completed. When the newest assistant message carries an abort error (MessageAbortedError), the completion notification and sound are suppressed for that turn.</li>

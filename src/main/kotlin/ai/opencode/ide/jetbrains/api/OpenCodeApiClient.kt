@@ -70,7 +70,8 @@ open class OpenCodeApiClient(
         val messageId: String,
         val completed: Boolean,
         val runningTools: Int,
-        val errorName: String? = null
+        val errorName: String? = null,
+        val finishReason: String? = null
     ) {
         val aborted: Boolean get() = errorName?.contains("Abort", ignoreCase = true) == true
     }
@@ -93,14 +94,18 @@ open class OpenCodeApiClient(
                 val completed = info.getAsJsonObject("time")?.get("completed")?.isJsonNull == false
                 val errorName = info.getAsJsonObject("error")?.get("name")?.asString
                 var runningTools = 0
+                var finishReason: String? = null
                 message.getAsJsonArray("parts")?.forEach { part ->
                     val partObject = part.asJsonObject
-                    if (partObject.get("type")?.asString == "tool") {
-                        val status = partObject.getAsJsonObject("state")?.get("status")?.asString
-                        if (status == "pending" || status == "running") runningTools++
+                    when (partObject.get("type")?.asString) {
+                        "tool" -> {
+                            val status = partObject.getAsJsonObject("state")?.get("status")?.asString
+                            if (status == "pending" || status == "running") runningTools++
+                        }
+                        "step-finish" -> finishReason = partObject.get("reason")?.asString
                     }
                 }
-                return SessionTailState(messageId, completed, runningTools, errorName)
+                return SessionTailState(messageId, completed, runningTools, errorName, finishReason)
             }
             null
         } catch (e: Exception) {
