@@ -60,7 +60,7 @@ class OpenCodeService(private val project: Project) : Disposable {
         internal var DEBOUNCE_MS = 1500L
         private const val MAX_PENDING_DIFF_ENTRIES = 500
         private const val MAX_PENDING_DIFF_CHARS = 32L * 1024 * 1024
-        private const val COMPLETION_SETTLE_MS = 4000L
+        private const val COMPLETION_SETTLE_MS = 12000L
         private const val COMPLETION_RECHECK_MS = 2000L
         private const val MAX_COMPLETION_CHECKS = 1800
         private const val MIN_ANNOUNCE_INTERVAL_MS = 8000L
@@ -496,7 +496,7 @@ class OpenCodeService(private val project: Project) : Disposable {
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
             if (gatingMarkerLogged.compareAndSet(false, true)) {
-                logger.info("[OpenCode] Completion gating v11 active (finishReason + dumb + tree + abort)")
+                logger.info("[OpenCode] Completion gating v12 active (finishReason + dumb + tree + abort)")
             }
             val tail = readSessionTail(sessionId)
             if (tail != null && tail.aborted) {

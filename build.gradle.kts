@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.11"
+version = "1.1.12"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,11 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.12</h2>
+            <ul>
+                <li>Fix: the completion announcement now waits 12 seconds after the session reports idle (was 4), so it no longer overlaps PyCharm's own post-turn activity (VFS refresh, highlighting, indexing) that keeps the status-bar progress alive after OpenCode is done.</li>
+                <li>Diagnostics: the completion gate logs "Completion gating v12 active" once, so the running build can be verified from idea.log.</li>
+            </ul>
             <h2>1.1.11</h2>
             <ul>
                 <li>Diagnostics: the completion gate logs its version once per connection ("Completion gating v11 active") so the running build can be verified from idea.log.</li>
