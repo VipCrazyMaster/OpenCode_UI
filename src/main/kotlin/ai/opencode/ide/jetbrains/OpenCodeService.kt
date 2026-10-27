@@ -101,6 +101,7 @@ class OpenCodeService(private val project: Project) : Disposable {
     private val currentTurnMessageKeys = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val lastAnnouncementAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val lastSettledMessageIds = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val gatingMarkerLogged = java.util.concurrent.atomic.AtomicBoolean(false)
 
     val sessionManager: SessionManager get() = _sessionManager ?: project.service()
     private val diffViewerService: DiffViewerService get() = _diffViewerService ?: project.service()
@@ -494,6 +495,9 @@ class OpenCodeService(private val project: Project) : Disposable {
                 return@schedule
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
+            if (gatingMarkerLogged.compareAndSet(false, true)) {
+                logger.info("[OpenCode] Completion gating v11 active (finishReason + dumb + tree + abort)")
+            }
             val tail = readSessionTail(sessionId)
             if (tail != null && tail.aborted) {
                 logger.info("[OpenCode] Completion suppressed: ${tail.messageId} was aborted (${tail.errorName})")

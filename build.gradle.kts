@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.10"
+version = "1.1.11"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,10 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.11</h2>
+            <ul>
+                <li>Diagnostics: the completion gate logs its version once per connection ("Completion gating v11 active") so the running build can be verified from idea.log.</li>
+            </ul>
             <h2>1.1.10</h2>
             <ul>
                 <li>Fix: a turn whose last step finished with reason "tool-calls" is treated as still running, which is how OpenCode itself marks an unfinished turn.</li>
