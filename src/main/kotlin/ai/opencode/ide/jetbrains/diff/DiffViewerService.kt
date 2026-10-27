@@ -16,6 +16,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import java.lang.ref.WeakReference
@@ -58,10 +59,18 @@ open class DiffViewerService(private val project: Project) : Disposable {
                 "total ${formatChars(totalChars.toInt())} across ${entries.size} files"
             }
             logger.warn("[DiffViewer] Skipping auto-open: $details exceeds the ${formatChars(MAX_AUTO_OPEN_FILE_CHARS)} per-file / ${formatChars(MAX_AUTO_OPEN_TOTAL_CHARS)} total limit")
-            notifyDiffTooLarge(details)
+            if (entries.none { it.diff.after.isNotEmpty() }) {
+                logger.info("[DiffViewer] Nothing to review: every changed file was deleted")
+                return
+            }
+            notifyDiffTooLarge(details, entries, initialIndex)
             return
         }
 
+        openDiffs(entries, initialIndex)
+    }
+
+    private fun openDiffs(entries: List<DiffEntry>, initialIndex: Int?) {
         closeLastOpenedDiff()
 
         val total = entries.size
@@ -114,15 +123,18 @@ open class DiffViewerService(private val project: Project) : Disposable {
         }
     }
 
-    private fun notifyDiffTooLarge(details: String) {
-        NotificationGroupManager.getInstance()
+    private fun notifyDiffTooLarge(details: String, entries: List<DiffEntry>, initialIndex: Int?) {
+        val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup("OpenCode")
             .createNotification(
                 "OpenCode",
-                "Diff not opened automatically: $details. Opening very large diffs freezes the editor while folding and highlighting run; open the file manually to review it.",
+                "Diff not opened automatically: $details. Review it with git (git diff) or open the file manually — opening very large diffs freezes the editor while folding and highlighting run.",
                 NotificationType.WARNING
             )
-            .notify(project)
+        notification.addAction(NotificationAction.createSimple("Open anyway") {
+            openDiffs(entries, initialIndex)
+        })
+        notification.notify(project)
     }
 
     private fun closeLastOpenedDiff() {

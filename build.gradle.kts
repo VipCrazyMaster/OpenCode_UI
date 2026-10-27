@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.6"
+version = "1.1.7"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,11 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.7</h2>
+            <ul>
+                <li>Fix: the "diff not opened automatically" warning is now only shown when there is something to review. A batch that only deletes oversized files stays silent (logged), and the notification suggests git instead of a file that no longer exists.</li>
+                <li>New: that notification has an "Open anyway" action, so an oversized diff can still be opened deliberately.</li>
+            </ul>
             <h2>1.1.6</h2>
             <ul>
                 <li>Fix: completion is now judged by the whole session tree instead of the parent session alone. While any child session (background sub-agent) is still busy or retrying, the announcement is deferred and re-checked every 2 seconds, so "task completed" no longer fires while agents are still running.</li>
