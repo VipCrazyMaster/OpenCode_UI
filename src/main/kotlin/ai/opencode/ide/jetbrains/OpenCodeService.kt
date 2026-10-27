@@ -64,6 +64,7 @@ class OpenCodeService(private val project: Project) : Disposable {
         private const val COMPLETION_RECHECK_MS = 2000L
         private const val MAX_COMPLETION_CHECKS = 1800
         private const val MIN_ANNOUNCE_INTERVAL_MS = 8000L
+        private const val COMPLETION_QUIET_MS = 12000L
     }
 
     private var hostname: String = "127.0.0.1"
@@ -102,6 +103,7 @@ class OpenCodeService(private val project: Project) : Disposable {
     private val lastAnnouncementAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val lastSettledMessageIds = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val gatingMarkerLogged = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val lastActivityAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     val sessionManager: SessionManager get() = _sessionManager ?: project.service()
     private val diffViewerService: DiffViewerService get() = _diffViewerService ?: project.service()
@@ -206,6 +208,7 @@ class OpenCodeService(private val project: Project) : Disposable {
         when (event) {
             is SessionStatusEvent -> {
                 val sId = event.properties.sessionID
+                lastActivityAt[sId] = System.currentTimeMillis()
                 val status = event.properties.status
                 if (status.isBusy()) {
                     cancelCompletionAnnouncement(sId)
@@ -225,6 +228,7 @@ class OpenCodeService(private val project: Project) : Disposable {
             }
             is SessionIdleEvent -> {
                 val sId = event.properties.sessionID
+                lastActivityAt[sId] = System.currentTimeMillis()
                 val snapshot = sessionManager.onTurnEnd()
                 if (snapshot != null) {
                     turnSnapshots[sId] = snapshot
@@ -237,6 +241,7 @@ class OpenCodeService(private val project: Project) : Disposable {
             is FileEditedEvent -> sessionManager.onFileEdited(event.properties.file)
             is MessageUpdatedEvent -> {
                 val info = event.properties.info
+                info.sessionID?.let { lastActivityAt[it] = System.currentTimeMillis() }
                 if (info.role == null || info.role == "assistant") {
                     recordTurnMessageId(info.sessionID, info.id)
                 }
@@ -496,7 +501,7 @@ class OpenCodeService(private val project: Project) : Disposable {
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
             if (gatingMarkerLogged.compareAndSet(false, true)) {
-                logger.info("[OpenCode] Completion gating v13 active (finishReason + dumb + tree + abort)")
+                logger.info("[OpenCode] Completion gating v14 active (finishReason + dumb + tree + abort)")
             }
             val tail = readSessionTail(sessionId)
             if (tail != null && tail.aborted) {
@@ -508,6 +513,15 @@ class OpenCodeService(private val project: Project) : Disposable {
             if (!isCompletionSettled(sessionId, snapshot, tail)) {
                 if (attempt == 0 || attempt % 15 == 0) {
                     logger.info("[OpenCode] Completion deferred (check ${attempt + 1}) for $sessionId")
+                }
+                if (attempt < MAX_COMPLETION_CHECKS) scheduleCompletionAnnouncement(sessionId, snapshot, attempt + 1)
+                return@schedule
+            }
+            val lastActivity = lastActivityAt[sessionId] ?: 0L
+            val quietFor = System.currentTimeMillis() - lastActivity
+            if (quietFor < COMPLETION_QUIET_MS) {
+                if (attempt % 15 == 0) {
+                    logger.info("[OpenCode] Completion deferred: only ${quietFor}ms since last activity for $sessionId")
                 }
                 if (attempt < MAX_COMPLETION_CHECKS) scheduleCompletionAnnouncement(sessionId, snapshot, attempt + 1)
                 return@schedule
@@ -641,7 +655,7 @@ class OpenCodeService(private val project: Project) : Disposable {
         connectionManagerTask?.cancel(true); sseListener?.disconnect(); isConnected.set(false); isConnecting.set(false)
         turnMessageIds.clear(); turnPendingPayloads.clear(); turnSnapshots.clear(); turnIdleWaiting.clear(); turnBarrierTasks.values.forEach { it.cancel(false) }; turnBarrierTasks.clear()
         pendingCompletionTasks.values.forEach { it.cancel(false) }; pendingCompletionTasks.clear()
-        announcedCompletionKeys.clear(); completionEpoch.clear(); currentTurnMessageKeys.clear(); lastAnnouncementAt.clear(); lastSettledMessageIds.clear()
+        announcedCompletionKeys.clear(); completionEpoch.clear(); currentTurnMessageKeys.clear(); lastAnnouncementAt.clear(); lastSettledMessageIds.clear(); lastActivityAt.clear()
         terminateProcess()
         terminalVirtualFile?.let { OpenCodeTerminalFileEditorProvider.disposeWidget(it, null) }
         terminalVirtualFile = null; terminalEditor = null; webVirtualFile = null; port = null; hostname = "127.0.0.1"; apiClient = null
