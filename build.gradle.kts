@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.5"
+version = "1.1.6"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,10 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.6</h2>
+            <ul>
+                <li>Fix: completion is now judged by the whole session tree instead of the parent session alone. While any child session (background sub-agent) is still busy or retrying, the announcement is deferred and re-checked every 2 seconds, so "task completed" no longer fires while agents are still running.</li>
+            </ul>
             <h2>1.1.5</h2>
             <ul>
                 <li>Fix: "task completed" announcements. Completion is now announced only after the session stays idle for 4 seconds, once per turn, and pending announcements are cancelled as soon as new work starts — no more premature or repeated notifications.</li>

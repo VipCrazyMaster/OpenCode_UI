@@ -61,6 +61,8 @@ class OpenCodeService(private val project: Project) : Disposable {
         private const val MAX_PENDING_DIFF_ENTRIES = 500
         private const val MAX_PENDING_DIFF_CHARS = 32L * 1024 * 1024
         private const val COMPLETION_SETTLE_MS = 4000L
+        private const val COMPLETION_RECHECK_MS = 2000L
+        private const val MAX_COMPLETION_CHECKS = 1800
         private const val MIN_ANNOUNCE_INTERVAL_MS = 8000L
     }
 
@@ -477,10 +479,11 @@ class OpenCodeService(private val project: Project) : Disposable {
     }
 
     private fun updateConnectionState(connected: Boolean) { if (isConnected.getAndSet(connected) != connected) connectionListeners.forEach { it(connected) } }
-    private fun scheduleCompletionAnnouncement(sessionId: String, snapshot: TurnSnapshot?) {
+    private fun scheduleCompletionAnnouncement(sessionId: String, snapshot: TurnSnapshot?, attempt: Int = 0) {
         val key = currentTurnMessageKeys[sessionId] ?: snapshot?.let { "turn:${it.turnNumber}" } ?: return
         if (announcedCompletionKeys[sessionId] == key) return
         val epoch = completionEpoch[sessionId] ?: 0L
+        val delayMs = if (attempt == 0) COMPLETION_SETTLE_MS else COMPLETION_RECHECK_MS
         pendingCompletionTasks.remove(sessionId)?.cancel(false)
         pendingCompletionTasks[sessionId] = AppExecutorUtil.getAppScheduledExecutorService().schedule({
             pendingCompletionTasks.remove(sessionId)
@@ -490,9 +493,45 @@ class OpenCodeService(private val project: Project) : Disposable {
                 return@schedule
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
+            if (!isSessionTreeIdle(sessionId)) {
+                if (attempt == 0 || attempt % 15 == 0) {
+                    logger.info("[OpenCode] Completion deferred: session tree of $sessionId still has background work (check ${attempt + 1})")
+                }
+                if (attempt < MAX_COMPLETION_CHECKS) scheduleCompletionAnnouncement(sessionId, snapshot, attempt + 1)
+                return@schedule
+            }
             announcedCompletionKeys[sessionId] = key
             announceCompletion(sessionId, snapshot)
-        }, COMPLETION_SETTLE_MS, TimeUnit.MILLISECONDS)
+        }, delayMs, TimeUnit.MILLISECONDS)
+    }
+
+    private fun isSessionTreeIdle(sessionId: String): Boolean {
+        val client = apiClient ?: return true
+        val directory = project.basePath ?: return true
+        val statuses = try {
+            client.getSessionStatuses(directory)
+        } catch (e: Exception) {
+            logger.warn("[OpenCode] Completion check could not read session status: ${e.message}")
+            return true
+        }
+        val busyIds = statuses.filter { it.status.isBusy() || it.status.isRetry() }.map { it.sessionID }.toSet()
+        if (busyIds.isEmpty()) return true
+        val sessions = try {
+            client.getSessions(directory)
+        } catch (e: Exception) {
+            logger.warn("[OpenCode] Completion check could not list sessions: ${e.message}")
+            return false
+        }
+        val childrenByParent = sessions.groupBy { it.parentID }
+        val subtree = HashSet<String>()
+        val queue = ArrayDeque<String>()
+        queue.add(sessionId)
+        while (queue.isNotEmpty() && subtree.size < 500) {
+            val current = queue.removeFirst()
+            if (!subtree.add(current)) continue
+            childrenByParent[current].orEmpty().forEach { queue.add(it.id) }
+        }
+        return busyIds.none { it in subtree }
     }
 
     private fun cancelCompletionAnnouncement(sessionId: String) {
