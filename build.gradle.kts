@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.12"
+version = "1.1.13"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,11 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.13</h2>
+            <ul>
+                <li>Fix: a pending completion announcement is dropped when a newer assistant message appears for the same session before the announcement fires, closing the last step-boundary race.</li>
+                <li>Diagnostics: completion logs now carry the session id so announcements can be matched to the session they belong to (especially with several OpenCode sessions open).</li>
+            </ul>
             <h2>1.1.12</h2>
             <ul>
                 <li>Fix: the completion announcement now waits 12 seconds after the session reports idle (was 4), so it no longer overlaps PyCharm's own post-turn activity (VFS refresh, highlighting, indexing) that keeps the status-bar progress alive after OpenCode is done.</li>

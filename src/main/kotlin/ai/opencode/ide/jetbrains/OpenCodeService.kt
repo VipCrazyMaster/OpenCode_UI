@@ -496,7 +496,7 @@ class OpenCodeService(private val project: Project) : Disposable {
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
             if (gatingMarkerLogged.compareAndSet(false, true)) {
-                logger.info("[OpenCode] Completion gating v12 active (finishReason + dumb + tree + abort)")
+                logger.info("[OpenCode] Completion gating v13 active (finishReason + dumb + tree + abort)")
             }
             val tail = readSessionTail(sessionId)
             if (tail != null && tail.aborted) {
@@ -510,6 +510,11 @@ class OpenCodeService(private val project: Project) : Disposable {
                     logger.info("[OpenCode] Completion deferred (check ${attempt + 1}) for $sessionId")
                 }
                 if (attempt < MAX_COMPLETION_CHECKS) scheduleCompletionAnnouncement(sessionId, snapshot, attempt + 1)
+                return@schedule
+            }
+            val currentKey = currentTurnMessageKeys[sessionId] ?: snapshot?.let { "turn:${it.turnNumber}" }
+            if (currentKey != key) {
+                logger.info("[OpenCode] Completion superseded by a newer message for $sessionId ($key → $currentKey)")
                 return@schedule
             }
             announcedCompletionKeys[sessionId] = key
@@ -542,12 +547,12 @@ class OpenCodeService(private val project: Project) : Disposable {
         if (tail == null) return snapshot != null && isSessionTreeIdle(sessionId)
         if (!tail.completed || tail.runningTools > 0 || tail.finishReason == "tool-calls") {
             lastSettledMessageIds.remove(sessionId)
-            logger.info("[OpenCode] Still running: ${tail.messageId} completed=${tail.completed} runningTools=${tail.runningTools} finishReason=${tail.finishReason}")
+            logger.info("[OpenCode] Still running: ${tail.messageId} completed=${tail.completed} runningTools=${tail.runningTools} finishReason=${tail.finishReason} (session $sessionId)")
             return false
         }
         val previous = lastSettledMessageIds.put(sessionId, tail.messageId)
         if (previous != tail.messageId) {
-            logger.info("[OpenCode] Waiting for ${tail.messageId} to stay quiet")
+            logger.info("[OpenCode] Waiting for ${tail.messageId} to stay quiet (session $sessionId)")
             return false
         }
         return isSessionTreeIdle(sessionId)
@@ -596,7 +601,7 @@ class OpenCodeService(private val project: Project) : Disposable {
         }
         lastAnnouncementAt[sessionId] = now
         val turnText = snapshot?.let { "Turn #${it.turnNumber} finished" } ?: "Session is now idle"
-        logger.info("[OpenCode] Completion announced: $turnText")
+        logger.info("[OpenCode] Completion announced for $sessionId: $turnText")
         sendNotification("OpenCode Task Completed", "$turnText. Checking for changes...", replacePrevious = true)
         try {
             java.awt.Toolkit.getDefaultToolkit().beep()
