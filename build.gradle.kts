@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.4"
+version = "1.1.5"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,11 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.5</h2>
+            <ul>
+                <li>Fix: "task completed" announcements. Completion is now announced only after the session stays idle for 4 seconds, once per turn, and pending announcements are cancelled as soon as new work starts — no more premature or repeated notifications.</li>
+                <li>New: completion also plays a system sound, so it is audible even when the IDE is in the background or system notification sounds are off.</li>
+            </ul>
             <h2>1.1.4</h2>
             <ul>
                 <li>Fix: Diffs larger than 1 MB per file (or 3 MB in total) are no longer opened automatically. Opening very large diffs freezes the editor for tens of seconds while IDE folding and highlighting run; a notification now names the file so it can be reviewed manually.</li>

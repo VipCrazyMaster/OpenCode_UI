@@ -60,6 +60,8 @@ class OpenCodeService(private val project: Project) : Disposable {
         internal var DEBOUNCE_MS = 1500L
         private const val MAX_PENDING_DIFF_ENTRIES = 500
         private const val MAX_PENDING_DIFF_CHARS = 32L * 1024 * 1024
+        private const val COMPLETION_SETTLE_MS = 4000L
+        private const val MIN_ANNOUNCE_INTERVAL_MS = 8000L
     }
 
     private var hostname: String = "127.0.0.1"
@@ -90,6 +92,12 @@ class OpenCodeService(private val project: Project) : Disposable {
     private val turnIdleWaiting = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val turnBarrierTasks = java.util.concurrent.ConcurrentHashMap<String, ScheduledFuture<*>>()
     private val turnLastTriggerTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private val pendingCompletionTasks = java.util.concurrent.ConcurrentHashMap<String, ScheduledFuture<*>>()
+    private val announcedCompletionKeys = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val completionEpoch = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val currentTurnMessageKeys = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val lastAnnouncementAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     val sessionManager: SessionManager get() = _sessionManager ?: project.service()
     private val diffViewerService: DiffViewerService get() = _diffViewerService ?: project.service()
@@ -196,6 +204,7 @@ class OpenCodeService(private val project: Project) : Disposable {
                 val sId = event.properties.sessionID
                 val status = event.properties.status
                 if (status.isBusy()) {
+                    cancelCompletionAnnouncement(sId)
                     val started = sessionManager.onTurnStart()
                     if (started) clearTurnState(sId)
                 } else if (status.isIdle()) {
@@ -204,12 +213,8 @@ class OpenCodeService(private val project: Project) : Disposable {
                     if (snapshot != null) {
                         turnSnapshots[sId] = snapshot
                         logger.info("[OpenCode] Turn #${snapshot.turnNumber} snapshot captured")
-                        sendNotification(
-                            "OpenCode Task Completed",
-                            "Session is now idle. Checking for changes...",
-                            replacePrevious = true
-                        )
                     }
+                    scheduleCompletionAnnouncement(sId, snapshot)
                     turnIdleWaiting[sId] = true
                     attemptBarrierTrigger(sId)
                 }
@@ -220,12 +225,8 @@ class OpenCodeService(private val project: Project) : Disposable {
                 if (snapshot != null) {
                     turnSnapshots[sId] = snapshot
                     logger.info("[OpenCode] Turn #${snapshot.turnNumber} snapshot captured (via idle event)")
-                    sendNotification(
-                        "OpenCode Task Completed",
-                        "Session is now idle. Checking for changes...",
-                        replacePrevious = true
-                    )
                 }
+                scheduleCompletionAnnouncement(sId, snapshot)
                 turnIdleWaiting[sId] = true
                 attemptBarrierTrigger(sId)
             }
@@ -259,6 +260,7 @@ class OpenCodeService(private val project: Project) : Disposable {
     }
 
     private fun clearTurnState(sessionId: String) {
+        cancelCompletionAnnouncement(sessionId)
         val oldSnapshot = turnSnapshots.remove(sessionId)
         turnMessageIds.remove(sessionId)
         turnPendingPayloads.remove(sessionId)
@@ -274,6 +276,7 @@ class OpenCodeService(private val project: Project) : Disposable {
     }
 
     private fun recordTurnMessageId(sessionId: String, messageId: String) {
+        currentTurnMessageKeys[sessionId] = messageId
         if (turnMessageIds.containsKey(sessionId)) return
         turnMessageIds[sessionId] = messageId
         val turnNum = turnSnapshots[sessionId]?.turnNumber ?: sessionManager.getCurrentTurnNumber()
@@ -474,6 +477,47 @@ class OpenCodeService(private val project: Project) : Disposable {
     }
 
     private fun updateConnectionState(connected: Boolean) { if (isConnected.getAndSet(connected) != connected) connectionListeners.forEach { it(connected) } }
+    private fun scheduleCompletionAnnouncement(sessionId: String, snapshot: TurnSnapshot?) {
+        val key = currentTurnMessageKeys[sessionId] ?: snapshot?.let { "turn:${it.turnNumber}" } ?: return
+        if (announcedCompletionKeys[sessionId] == key) return
+        val epoch = completionEpoch[sessionId] ?: 0L
+        pendingCompletionTasks.remove(sessionId)?.cancel(false)
+        pendingCompletionTasks[sessionId] = AppExecutorUtil.getAppScheduledExecutorService().schedule({
+            pendingCompletionTasks.remove(sessionId)
+            if (project.isDisposed) return@schedule
+            if ((completionEpoch[sessionId] ?: 0L) != epoch) {
+                logger.info("[OpenCode] Completion announcement superseded for $sessionId")
+                return@schedule
+            }
+            if (announcedCompletionKeys[sessionId] == key) return@schedule
+            announcedCompletionKeys[sessionId] = key
+            announceCompletion(sessionId, snapshot)
+        }, COMPLETION_SETTLE_MS, TimeUnit.MILLISECONDS)
+    }
+
+    private fun cancelCompletionAnnouncement(sessionId: String) {
+        pendingCompletionTasks.remove(sessionId)?.cancel(false)
+        completionEpoch.merge(sessionId, 1L, Long::plus)
+    }
+
+    private fun announceCompletion(sessionId: String, snapshot: TurnSnapshot?) {
+        val now = System.currentTimeMillis()
+        val previous = lastAnnouncementAt[sessionId] ?: 0L
+        if (now - previous < MIN_ANNOUNCE_INTERVAL_MS) {
+            logger.info("[OpenCode] Completion announcement throttled for $sessionId")
+            return
+        }
+        lastAnnouncementAt[sessionId] = now
+        val turnText = snapshot?.let { "Turn #${it.turnNumber} finished" } ?: "Session is now idle"
+        logger.info("[OpenCode] Completion announced: $turnText")
+        sendNotification("OpenCode Task Completed", "$turnText. Checking for changes...", replacePrevious = true)
+        try {
+            java.awt.Toolkit.getDefaultToolkit().beep()
+        } catch (e: Throwable) {
+            logger.debug("[OpenCode] Completion sound failed: ${e.message}")
+        }
+    }
+
     private fun sendNotification(
         title: String,
         content: String,
@@ -504,6 +548,8 @@ class OpenCodeService(private val project: Project) : Disposable {
     private fun disconnectAndReset() {
         connectionManagerTask?.cancel(true); sseListener?.disconnect(); isConnected.set(false); isConnecting.set(false)
         turnMessageIds.clear(); turnPendingPayloads.clear(); turnSnapshots.clear(); turnIdleWaiting.clear(); turnBarrierTasks.values.forEach { it.cancel(false) }; turnBarrierTasks.clear()
+        pendingCompletionTasks.values.forEach { it.cancel(false) }; pendingCompletionTasks.clear()
+        announcedCompletionKeys.clear(); completionEpoch.clear(); currentTurnMessageKeys.clear(); lastAnnouncementAt.clear()
         terminateProcess()
         terminalVirtualFile?.let { OpenCodeTerminalFileEditorProvider.disposeWidget(it, null) }
         terminalVirtualFile = null; terminalEditor = null; webVirtualFile = null; port = null; hostname = "127.0.0.1"; apiClient = null
