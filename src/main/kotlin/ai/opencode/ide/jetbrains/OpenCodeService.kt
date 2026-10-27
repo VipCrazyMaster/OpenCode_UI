@@ -494,7 +494,14 @@ class OpenCodeService(private val project: Project) : Disposable {
                 return@schedule
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
-            if (!isCompletionSettled(sessionId, snapshot)) {
+            val tail = readSessionTail(sessionId)
+            if (tail != null && tail.aborted) {
+                logger.info("[OpenCode] Completion suppressed: ${tail.messageId} was aborted (${tail.errorName})")
+                announcedCompletionKeys[sessionId] = key
+                lastSettledMessageIds.remove(sessionId)
+                return@schedule
+            }
+            if (!isCompletionSettled(sessionId, snapshot, tail)) {
                 if (attempt == 0 || attempt % 15 == 0) {
                     logger.info("[OpenCode] Completion deferred (check ${attempt + 1}) for $sessionId")
                 }
@@ -506,15 +513,22 @@ class OpenCodeService(private val project: Project) : Disposable {
         }, delayMs, TimeUnit.MILLISECONDS)
     }
 
-    private fun isCompletionSettled(sessionId: String, snapshot: TurnSnapshot?): Boolean {
-        val client = apiClient ?: return true
-        val directory = project.basePath ?: return true
-        val tail = try {
+    private fun readSessionTail(sessionId: String): ai.opencode.ide.jetbrains.api.OpenCodeApiClient.SessionTailState? {
+        val client = apiClient ?: return null
+        val directory = project.basePath ?: return null
+        return try {
             client.getSessionTailState(sessionId, directory)
         } catch (e: Exception) {
             logger.warn("[OpenCode] Completion check failed to read messages: ${e.message}")
-            return false
+            null
         }
+    }
+
+    private fun isCompletionSettled(
+        sessionId: String,
+        snapshot: TurnSnapshot?,
+        tail: ai.opencode.ide.jetbrains.api.OpenCodeApiClient.SessionTailState?
+    ): Boolean {
         if (tail == null) return snapshot != null && isSessionTreeIdle(sessionId)
         if (!tail.completed || tail.runningTools > 0) {
             lastSettledMessageIds.remove(sessionId)

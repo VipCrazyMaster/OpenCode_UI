@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.8"
+version = "1.1.9"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,10 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.9</h2>
+            <ul>
+                <li>Fix: manually interrupted turns are no longer announced as completed. When the newest assistant message carries an abort error (MessageAbortedError), the completion notification and sound are suppressed for that turn.</li>
+            </ul>
             <h2>1.1.8</h2>
             <ul>
                 <li>Fix: completion is now verified against the newest assistant message. A missing completion timestamp, or a pending/running tool part, means the turn is still running; the message must also stay unchanged across one re-check. This removes the remaining "completed" announcements that fired while work was still in progress.</li>

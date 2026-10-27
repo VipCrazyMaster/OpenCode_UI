@@ -66,7 +66,14 @@ open class OpenCodeApiClient(
         return getSessionStatuses(directory).find { it.status.isBusy() }
     }
 
-    data class SessionTailState(val messageId: String, val completed: Boolean, val runningTools: Int)
+    data class SessionTailState(
+        val messageId: String,
+        val completed: Boolean,
+        val runningTools: Int,
+        val errorName: String? = null
+    ) {
+        val aborted: Boolean get() = errorName?.contains("Abort", ignoreCase = true) == true
+    }
 
     /**
      * State of the newest assistant message of a session: a turn is still running while that
@@ -84,6 +91,7 @@ open class OpenCodeApiClient(
                 if (info.get("role")?.asString != "assistant") continue
                 val messageId = info.get("id")?.asString ?: continue
                 val completed = info.getAsJsonObject("time")?.get("completed")?.isJsonNull == false
+                val errorName = info.getAsJsonObject("error")?.get("name")?.asString
                 var runningTools = 0
                 message.getAsJsonArray("parts")?.forEach { part ->
                     val partObject = part.asJsonObject
@@ -92,7 +100,7 @@ open class OpenCodeApiClient(
                         if (status == "pending" || status == "running") runningTools++
                     }
                 }
-                return SessionTailState(messageId, completed, runningTools)
+                return SessionTailState(messageId, completed, runningTools, errorName)
             }
             null
         } catch (e: Exception) {
