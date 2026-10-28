@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.14"
+version = "1.1.15"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,10 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.15</h2>
+            <ul>
+                <li>Fix: sub-agent sessions no longer trigger completion notifications. Sub-agents run as child sessions (parentID set) and finish while the main session keeps working, which produced several popups and sounds mid-turn.</li>
+            </ul>
             <h2>1.1.14</h2>
             <ul>
                 <li>Fix: completion now also requires 12 seconds without any SSE activity for that session (status, message and part updates). OpenCode persists a message slightly after the agent resumes, so a check could see the previous, finished message and announce while the next one was already streaming.</li>

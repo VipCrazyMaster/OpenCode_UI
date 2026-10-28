@@ -501,11 +501,17 @@ class OpenCodeService(private val project: Project) : Disposable {
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
             if (gatingMarkerLogged.compareAndSet(false, true)) {
-                logger.info("[OpenCode] Completion gating v14 active (finishReason + dumb + tree + abort)")
+                logger.info("[OpenCode] Completion gating v15 active (finishReason + dumb + tree + abort)")
             }
             val tail = readSessionTail(sessionId)
             if (tail != null && tail.aborted) {
                 logger.info("[OpenCode] Completion suppressed: ${tail.messageId} was aborted (${tail.errorName})")
+                announcedCompletionKeys[sessionId] = key
+                lastSettledMessageIds.remove(sessionId)
+                return@schedule
+            }
+            if (isSubAgentSession(sessionId)) {
+                logger.info("[OpenCode] Completion suppressed: $sessionId is a sub-agent session")
                 announcedCompletionKeys[sessionId] = key
                 lastSettledMessageIds.remove(sessionId)
                 return@schedule
@@ -534,6 +540,18 @@ class OpenCodeService(private val project: Project) : Disposable {
             announcedCompletionKeys[sessionId] = key
             announceCompletion(sessionId, snapshot)
         }, delayMs, TimeUnit.MILLISECONDS)
+    }
+
+    private fun isSubAgentSession(sessionId: String): Boolean {
+        val client = apiClient ?: return false
+        val directory = project.basePath ?: return false
+        val session = try {
+            client.getSession(sessionId, directory)
+        } catch (e: Exception) {
+            logger.warn("[OpenCode] Could not resolve session $sessionId: ${e.message}")
+            return false
+        } ?: return false
+        return session.parentID != null
     }
 
     private fun readSessionTail(sessionId: String): ai.opencode.ide.jetbrains.api.OpenCodeApiClient.SessionTailState? {
