@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "ai.opencode"
-version = "1.1.15"
+version = "1.1.16"
 
 repositories {
     mavenCentral()
@@ -41,6 +41,11 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>1.1.16</h2>
+            <ul>
+                <li>Fix: closing one project no longer disconnects OpenCode in another project. Project teardown used to dispose every registered terminal (clearAll) and stop its pty process; the field log shows a second project's OpenCode logging "disposing all instances" 230ms after the first project closed. Teardown now only drops the plugin's own registrations and never kills a process.</li>
+                <li>Note: re-applies the project-scoped terminal teardown that was missing from the 1.1.3-1.1.15 builds.</li>
+            </ul>
             <h2>1.1.15</h2>
             <ul>
                 <li>Fix: sub-agent sessions no longer trigger completion notifications. Sub-agents run as child sessions (parentID set) and finish while the main session keeps working, which produced several popups and sounds mid-turn.</li>

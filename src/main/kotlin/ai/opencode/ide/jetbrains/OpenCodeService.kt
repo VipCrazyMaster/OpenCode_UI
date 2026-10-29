@@ -501,7 +501,7 @@ class OpenCodeService(private val project: Project) : Disposable {
             }
             if (announcedCompletionKeys[sessionId] == key) return@schedule
             if (gatingMarkerLogged.compareAndSet(false, true)) {
-                logger.info("[OpenCode] Completion gating v15 active (finishReason + dumb + tree + abort)")
+                logger.info("[OpenCode] Completion gating v16 active (finishReason + dumb + tree + abort)")
             }
             val tail = readSessionTail(sessionId)
             if (tail != null && tail.aborted) {
@@ -667,15 +667,24 @@ class OpenCodeService(private val project: Project) : Disposable {
         }
     }
 
-    override fun dispose() { disconnectAndReset(); OpenCodeTerminalFileEditorProvider.clearAll() }
+    override fun dispose() {
+        val basePath = project.basePath
+        val released = OpenCodeTerminalFileEditorProvider.forgetProject(project)
+        disconnectAndReset(killProcess = false)
+        logger.info("[OpenCode] Project closed ($basePath): released $released terminal registration(s), no process killed")
+    }
 
-    private fun disconnectAndReset() {
+    private fun disconnectAndReset(killProcess: Boolean = true) {
         connectionManagerTask?.cancel(true); sseListener?.disconnect(); isConnected.set(false); isConnecting.set(false)
         turnMessageIds.clear(); turnPendingPayloads.clear(); turnSnapshots.clear(); turnIdleWaiting.clear(); turnBarrierTasks.values.forEach { it.cancel(false) }; turnBarrierTasks.clear()
         pendingCompletionTasks.values.forEach { it.cancel(false) }; pendingCompletionTasks.clear()
         announcedCompletionKeys.clear(); completionEpoch.clear(); currentTurnMessageKeys.clear(); lastAnnouncementAt.clear(); lastSettledMessageIds.clear(); lastActivityAt.clear()
-        terminateProcess()
-        terminalVirtualFile?.let { OpenCodeTerminalFileEditorProvider.disposeWidget(it, null) }
+        if (killProcess) {
+            terminateProcess()
+            terminalVirtualFile?.let { OpenCodeTerminalFileEditorProvider.disposeWidget(it, null) }
+        } else {
+            terminalVirtualFile?.let { OpenCodeTerminalFileEditorProvider.unregisterWidget(it) }
+        }
         terminalVirtualFile = null; terminalEditor = null; webVirtualFile = null; port = null; hostname = "127.0.0.1"; apiClient = null
     }
 
@@ -821,7 +830,7 @@ class OpenCodeService(private val project: Project) : Disposable {
         val w = TerminalView.getInstance(project).createLocalShellWidget(wd, t)
         OpenCodeTerminalLinkFilter.install(project, w)
         val f = OpenCodeTerminalVirtualFile(t)
-        terminalVirtualFile = f; OpenCodeTerminalFileEditorProvider.registerWidget(f, w)
+        terminalVirtualFile = f; OpenCodeTerminalFileEditorProvider.registerWidget(f, w, project)
         ApplicationManager.getApplication().invokeLater {
             terminalEditor = FileEditorManager.getInstance(project).openFile(f, true).firstOrNull { it is OpenCodeTerminalFileEditor } as? OpenCodeTerminalFileEditor
             terminalEditor?.let { 
